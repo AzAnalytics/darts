@@ -106,3 +106,93 @@ Map<String, Set<int>> possiblePlayersInWinners(Bracket bracket) {
       };
   return {for (final n in winners) n.key: possible(n)};
 }
+
+/// Le premier « double affrontement » possible dans un tableau.
+class RematchRisk {
+  /// Case où la revanche peut avoir lieu (la plus précoce).
+  final String nodeKey;
+  final BracketSide side;
+  final int round;
+
+  /// Nombre de paires de joueurs pouvant se rejouer à ce moment-là.
+  final int pairs;
+  const RematchRisk(this.nodeKey, this.side, this.round, this.pairs);
+
+  @override
+  String toString() => '$nodeKey (tour $round, $pairs paires)';
+}
+
+/// Mesure exacte (sans tirage au sort) du tour le plus précoce où deux joueurs
+/// qui viennent de s'affronter peuvent se retrouver face à face une seconde fois.
+///
+/// Principe : le parcours d'un joueur est une suite de cases (à chaque case il
+/// gagne -> lien vainqueur, ou perd -> lien perdant). Deux joueurs se
+/// rencontrent dans toute case commune à leurs parcours ; à la première
+/// rencontre l'un gagne et l'autre perd, donc leurs parcours DOIVENT diverger
+/// (et les deux doivent continuer). La revanche est la case commune suivante.
+/// On énumère tous les couples de parcours : il y en a peu (un parcours = un
+/// tour de chute dans le tableau perdant), le calcul est donc exact.
+///
+/// Renvoie null si aucune revanche n'est possible. La grande finale compte comme
+/// le dernier tour possible (un champion des deux tableaux s'y rencontre presque
+/// toujours pour la seconde fois).
+RematchRisk? earliestRematch(Bracket bracket) {
+  final byKey = {for (final n in bracket.nodes) n.key: n};
+  final startOf = <int, String>{};
+  for (final n in bracket.nodes) {
+    if (n.playerA != null) startOf[n.playerA!] = n.key;
+    if (n.playerB != null) startOf[n.playerB!] = n.key;
+  }
+
+  final memo = <String, List<List<String>>>{};
+  List<List<String>> pathsFrom(String key) => memo[key] ??= [
+        [key],
+        for (final ref in [byKey[key]!.winnerTo, byKey[key]!.loserTo])
+          if (ref != null)
+            for (final tail in pathsFrom(ref.nodeKey)) [key, ...tail],
+      ];
+
+  int rank(String key) {
+    final n = byKey[key]!;
+    return n.side == BracketSide.grandFinal ? 1 << 20 : n.round;
+  }
+
+  final players = startOf.keys.toList()..sort();
+  // Parcours de chaque joueur (avec leur ensemble de cases, calculé une fois).
+  final journeys = {
+    for (final p in players)
+      p: [
+        for (final path in pathsFrom(startOf[p]!)) (path, path.toSet()),
+      ],
+  };
+  String? bestKey;
+  var bestRank = 1 << 30;
+  var bestPairs = <String>{};
+
+  for (var i = 0; i < players.length; i++) {
+    for (var j = i + 1; j < players.length; j++) {
+      for (final (sx, _) in journeys[players[i]]!) {
+        for (final (sy, inY) in journeys[players[j]]!) {
+          final shared = [for (final k in sx) if (inY.contains(k)) k];
+          if (shared.length < 2) continue;
+          // Première rencontre : les parcours doivent diverger et continuer.
+          final ix = sx.indexOf(shared[0]);
+          final iy = sy.indexOf(shared[0]);
+          if (ix + 1 >= sx.length || iy + 1 >= sy.length) continue;
+          if (sx[ix + 1] == sy[iy + 1]) continue;
+          final rematchNode = shared[1];
+          final r = rank(rematchNode);
+          if (r < bestRank) {
+            bestRank = r;
+            bestKey = rematchNode;
+            bestPairs = {};
+          }
+          if (r == bestRank) bestPairs.add('${players[i]}-${players[j]}');
+        }
+      }
+    }
+  }
+  if (bestKey == null) return null;
+  final node = byKey[bestKey]!;
+  return RematchRisk(bestKey, node.side, node.round, bestPairs.length);
+}

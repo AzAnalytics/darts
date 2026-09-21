@@ -165,8 +165,8 @@ class DoubleEliminationFormat implements BracketFormat {
     //  - tour 2j-1 : les survivants s'affrontent entre eux (pour j = 1, ce sont
     //    les perdants du 1er tour du tableau gagnant) ;
     //  - tour 2j   : les survivants affrontent les perdants du tour j+1 du
-    //    tableau gagnant. Ordre d'arrivée alterné (inversé pour j impair) pour
-    //    retarder les revanches au mieux.
+    //    tableau gagnant, dans l'ordre donné par _dropPosition (motif croisé
+    //    qui repousse les revanches).
     for (var j = 1; j <= rounds - 1; j++) {
       final count = size >> (j + 1);
       for (var i = 1; i <= count; i++) {
@@ -184,7 +184,7 @@ class DoubleEliminationFormat implements BracketFormat {
         ));
       }
       for (var i = 1; i <= count; i++) {
-        final drop = j.isOdd ? count + 1 - i : i;
+        final drop = _dropPosition(j, i, count);
         drafts.add(_Draft(
           BracketKeys.losers(2 * j, i),
           BracketSide.losers,
@@ -207,6 +207,26 @@ class DoubleEliminationFormat implements BracketFormat {
       winnerOf(BracketKeys.losers(2 * (rounds - 1), 1)),
     ));
     return drafts;
+  }
+
+  /// Motif croisé de la « descente » : parmi les [count] cases du tour 2j du
+  /// tableau perdant, renvoie quelle case du tour j+1 du tableau gagnant y
+  /// envoie son perdant, pour la case [i] (1-based).
+  ///
+  /// L'ordre d'arrivée doit changer à chaque descente, sinon un joueur retrouve
+  /// vite celui qui l'a déjà battu. Motif retenu (mesuré, voir
+  /// test/domain/bracket/rematch_test.dart) :
+  ///  - j impair : ordre inversé ;
+  ///  - j pair   : moitiés échangées (droit quand il ne reste que 2 cases, où
+  ///    l'échange n'apporte rien à 16 joueurs).
+  /// Effet : la première revanche possible n'arrive pas avant le tour k du
+  /// tableau perdant (k = log2 de la taille du tableau, ex. tour 5 pour 17 à 32
+  /// joueurs), alors qu'une descente « droite » l'autorise dès le tour 2 et un
+  /// motif inversé/droit alterné plafonne au tour 4 dès 17 joueurs.
+  int _dropPosition(int j, int i, int count) {
+    if (j.isOdd) return count + 1 - i;
+    if (count >= 4) return ((i - 1) ^ (count ~/ 2)) + 1;
+    return i;
   }
 
   @override

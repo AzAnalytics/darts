@@ -26,6 +26,7 @@ import 'package:darts/data/database.dart';
 import 'package:darts/data/repository.dart';
 import 'package:darts/domain/open.dart';
 import 'package:darts/ui/app_localization.dart';
+import 'package:darts/ui/opens/open_detail_screen.dart';
 
 /// Données de date françaises pour formatDate(). À appeler dans main() du test.
 void setUpUiTests() {
@@ -37,9 +38,36 @@ class UiTestEnv {
   late final DriftDartsRepository repo = DriftDartsRepository(db);
 
   /// Exécute du vrai async (appels au repository) et renvoie le résultat.
+  /// Une exception de l'action est RELANCÉE : tester.runAsync, seul, l'avale et
+  /// renvoie null, ce qui masquerait une préparation de test échouée.
   Future<T> run<T>(WidgetTester tester, Future<T> Function() action) async {
-    final result = await tester.runAsync(action);
-    return result as T;
+    T? value;
+    Object? error;
+    StackTrace? stack;
+    await tester.runAsync(() async {
+      try {
+        value = await action();
+      } catch (e, s) {
+        error = e;
+        stack = s;
+      }
+    });
+    if (error != null) Error.throwWithStackTrace(error!, stack!);
+    return value as T;
+  }
+
+  /// Glisse un élément par étapes (le glisser-déposer a besoin de frames
+  /// intermédiaires pour évaluer la position ; un seul déplacement ne suffit pas).
+  Future<void> dragBy(WidgetTester tester, Finder handle, Offset offset) async {
+    final gesture = await tester.startGesture(tester.getCenter(handle));
+    await tester.pump(const Duration(milliseconds: 50));
+    const steps = 6;
+    for (var i = 0; i < steps; i++) {
+      await gesture.moveBy(offset / steps.toDouble());
+      await tester.pump(const Duration(milliseconds: 30));
+    }
+    await gesture.up();
+    await settle(tester);
   }
 
   /// Laisse les flux Drift émettre, puis reconstruit l'arbre (et joue les
@@ -97,9 +125,10 @@ class UiTestEnv {
     );
   }
 
-  /// Inscrit [players] joueurs J1..Jn (classés dans l'ordre) à l'open.
+  /// Inscrit [players] joueurs J1..Jn à l'open ; classés dans l'ordre si [seeded].
   Future<List<int>> registerPlayers(
-      WidgetTester tester, int openId, int players) {
+      WidgetTester tester, int openId, int players,
+      {bool seeded = true}) {
     return run(tester, () async {
       final ids = <int>[];
       for (var i = 1; i <= players; i++) {
@@ -107,10 +136,45 @@ class UiTestEnv {
         ids.add(id);
         await repo.registerPlayer(openId, id);
       }
-      await repo.setSeeds(openId, ids);
+      if (seeded && ids.isNotEmpty) await repo.setSeeds(openId, ids);
       return ids;
     });
   }
+
+  /// Crée des joueurs connus (sans les inscrire) et renvoie leurs ids par nom.
+  Future<Map<String, int>> createPlayers(
+      WidgetTester tester, List<String> names) {
+    return run(tester, () async {
+      return {for (final n in names) n: await repo.getOrCreatePlayer(n)};
+    });
+  }
+
+  /// Affiche le détail d'un open, poussé sur un écran d'accueil factice.
+  Future<void> pumpDetail(WidgetTester tester, int openId) async {
+    await pumpScreen(
+      tester,
+      Scaffold(
+        body: Center(
+          child: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => OpenDetailScreen(repo: repo, openId: openId),
+              )),
+              child: const Text('ouvrir'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('ouvrir'));
+    await settle(tester);
+  }
+
+  Future<List<OpenEntry>> entries(WidgetTester tester, int openId) =>
+      run(tester, () => repo.watchEntries(openId).first);
+
+  Future<int> playerCount(WidgetTester tester) =>
+      run(tester, () async => (await db.select(db.players).get()).length);
 
   /// Inscrit [players] joueurs puis génère le tableau : l'open passe en `running`.
   Future<void> startOpen(WidgetTester tester, int openId, {int players = 3}) {

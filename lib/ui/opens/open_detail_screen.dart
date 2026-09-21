@@ -1,7 +1,8 @@
 // lib/ui/opens/open_detail_screen.dart
-// Détail d'un open. Écoute repo.watchOpen(id) : si l'open est supprimé (ici ou
-// ailleurs) l'écran se referme tout seul. Les onglets Joueurs / Tableau /
-// Classement viendront ici aux étapes suivantes.
+// Détail d'un open : trois onglets Joueurs / Tableau / Classement.
+// Écoute repo.watchOpen(id) : si l'open est supprimé (ici ou ailleurs) l'écran se
+// referme tout seul ; quand le tableau est généré, on bascule sur l'onglet Tableau.
+// Les onglets Tableau et Classement sont provisoires (étapes suivantes).
 
 import 'package:flutter/material.dart';
 
@@ -10,6 +11,7 @@ import '../../domain/open.dart';
 import '../ui_helpers.dart';
 import 'open_form_screen.dart';
 import 'open_list_screen.dart' show StatusChip;
+import 'players_tab.dart';
 
 enum _DetailAction { edit, delete }
 
@@ -22,9 +24,30 @@ class OpenDetailScreen extends StatefulWidget {
   State<OpenDetailScreen> createState() => _OpenDetailScreenState();
 }
 
-class _OpenDetailScreenState extends State<OpenDetailScreen> {
+class _OpenDetailScreenState extends State<OpenDetailScreen>
+    with SingleTickerProviderStateMixin {
   late final Stream<OpenSummary?> _open = widget.repo.watchOpen(widget.openId);
   bool _leaving = false; // évite de se refermer plusieurs fois
+
+  // Créé à la première réception de l'open : l'onglet de départ dépend de son statut.
+  TabController? _tabs;
+  String? _lastStatus;
+
+  static const _playersTab = 0;
+  static const _bracketTab = 1;
+  static const _rankingTab = 2;
+
+  int _initialTab(String status) => switch (status) {
+        OpenStatus.running => _bracketTab,
+        OpenStatus.finished => _rankingTab,
+        _ => _playersTab,
+      };
+
+  @override
+  void dispose() {
+    _tabs?.dispose();
+    super.dispose();
+  }
 
   Future<void> _edit(OpenSummary open) async {
     await Navigator.of(context).push<int>(MaterialPageRoute(
@@ -93,6 +116,16 @@ class _OpenDetailScreenState extends State<OpenDetailScreen> {
   }
 
   Widget _buildOpen(BuildContext context, OpenSummary open) {
+    final tabs =
+        _tabs ??= TabController(length: 3, vsync: this, initialIndex: _initialTab(open.status));
+    // Le tableau vient d'être généré : on montre le tableau.
+    if (_lastStatus == OpenStatus.setup && open.status == OpenStatus.running) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) tabs.animateTo(_bracketTab);
+      });
+    }
+    _lastStatus = open.status;
+
     final editable = open.status == OpenStatus.setup;
     return Scaffold(
       appBar: AppBar(
@@ -118,44 +151,45 @@ class _OpenDetailScreenState extends State<OpenDetailScreen> {
             ],
           ),
         ],
+        bottom: TabBar(
+          controller: tabs,
+          tabs: const [
+            Tab(text: 'Joueurs'),
+            Tab(text: 'Tableau'),
+            Tab(text: 'Classement'),
+          ],
+        ),
       ),
-      body: ListView(
-        padding: const EdgeInsets.all(16),
+      body: Column(
         children: [
-          Row(
-            children: [
-              StatusChip(status: open.status),
-              const SizedBox(width: 12),
-              Text(entryCountLabel(open.entryCount)),
-            ],
-          ),
-          const SizedBox(height: 16),
-          _InfoRow(
-            icon: Icons.calendar_today,
-            text: open.date == null ? 'Date à définir' : formatDate(open.date!),
-          ),
-          _InfoRow(
-            icon: Icons.place_outlined,
-            text: open.location ?? 'Lieu non précisé',
-          ),
-          _InfoRow(icon: Icons.account_tree_outlined, text: formatLabel(open.format)),
-          _InfoRow(
-            icon: Icons.sports_score,
-            text: 'Best of ${open.bestOf} legs par défaut',
-          ),
-          if (open.format == OpenFormat.doubleElim)
-            _InfoRow(
-              icon: Icons.emoji_events_outlined,
-              text: open.grandFinalReset
-                  ? 'Grande finale avec reset possible'
-                  : 'Grande finale en un seul match',
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                StatusChip(status: open.status),
+                const SizedBox(width: 12),
+                Text(entryCountLabel(open.entryCount)),
+              ],
             ),
-          const SizedBox(height: 24),
-          Text(
-            editable
-                ? 'Inscriptions et tableau : bientôt disponibles.'
-                : 'Cet open a démarré : il n\'est plus modifiable.',
-            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          Expanded(
+            child: TabBarView(
+              controller: tabs,
+              children: [
+                PlayersTab(repo: widget.repo, open: open),
+                _PlaceholderTab(
+                  icon: Icons.account_tree_outlined,
+                  text: open.status == OpenStatus.setup
+                      ? 'Le tableau sera disponible une fois généré '
+                          '(bouton « Générer le tableau » de l\'onglet Joueurs).'
+                      : 'L\'affichage du tableau arrive bientôt.',
+                ),
+                const _PlaceholderTab(
+                  icon: Icons.emoji_events_outlined,
+                  text: 'Le classement final apparaîtra ici à la fin de l\'open.',
+                ),
+              ],
+            ),
           ),
         ],
       ),
@@ -163,21 +197,24 @@ class _OpenDetailScreenState extends State<OpenDetailScreen> {
   }
 }
 
-class _InfoRow extends StatelessWidget {
+class _PlaceholderTab extends StatelessWidget {
   final IconData icon;
   final String text;
-  const _InfoRow({required this.icon, required this.text});
+  const _PlaceholderTab({required this.icon, required this.text});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Icon(icon, size: 20),
-          const SizedBox(width: 12),
-          Expanded(child: Text(text, style: const TextStyle(fontSize: 16))),
-        ],
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 56),
+            const SizedBox(height: 16),
+            Text(text, textAlign: TextAlign.center),
+          ],
+        ),
       ),
     );
   }

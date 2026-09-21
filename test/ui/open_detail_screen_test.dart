@@ -45,6 +45,18 @@ void main() {
     return (tester.widget(item) as PopupMenuItem).enabled;
   }
 
+  /// Les détails de l'open sont repliés par défaut dans l'onglet Joueurs.
+  Future<void> expandDetails(WidgetTester tester, UiTestEnv env) async {
+    await tester.tap(find.text('Détails de l\'open'));
+    await env.settle(tester);
+  }
+
+  /// Ouvre l'onglet Joueurs (un open démarré s'ouvre sur l'onglet Tableau).
+  Future<void> goToPlayersTab(WidgetTester tester, UiTestEnv env) async {
+    await tester.tap(find.widgetWithText(Tab, 'Joueurs'));
+    await env.settle(tester);
+  }
+
   uiTest('affiche les informations de l\'open', (tester, env) async {
     final id = await env.createOpen(tester,
         name: 'Open des champions',
@@ -53,6 +65,7 @@ void main() {
         bestOf: 7);
     await env.registerPlayers(tester, id, 2);
     await openDetail(tester, env, id);
+    await expandDetails(tester, env);
 
     expect(find.text('Open des champions'), findsOneWidget); // titre
     expect(find.text('Inscriptions'), findsOneWidget); // statut
@@ -67,6 +80,7 @@ void main() {
   uiTest('reset activé : la ligne le mentionne', (tester, env) async {
     final id = await env.createOpen(tester, grandFinalReset: true);
     await openDetail(tester, env, id);
+    await expandDetails(tester, env);
     expect(find.text('Grande finale avec reset possible'), findsOneWidget);
   });
 
@@ -146,6 +160,7 @@ void main() {
       await openDetail(tester, env, id);
 
       expect(find.text('En cours'), findsOneWidget);
+      await goToPlayersTab(tester, env);
       expect(find.text('Cet open a démarré : il n\'est plus modifiable.'), findsOneWidget);
 
       await openMenu(tester, env);
@@ -180,6 +195,10 @@ void main() {
       await env.settle(tester);
 
       expect(find.text('En cours'), findsOneWidget);
+      // L'écran bascule tout seul sur l'onglet Tableau…
+      expect(find.text('L\'affichage du tableau arrive bientôt.'), findsOneWidget);
+      // …et l'onglet Joueurs explique le verrouillage.
+      await goToPlayersTab(tester, env);
       expect(find.text('Cet open a démarré : il n\'est plus modifiable.'), findsOneWidget);
     });
   });

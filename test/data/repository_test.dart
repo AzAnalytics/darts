@@ -214,6 +214,92 @@ void main() {
     });
   });
 
+  group('Attribution de la dernière tête de série (inscription atomique)', () {
+    Future<Map<String, int?>> seedsByName(int openId) async {
+      final entries = await repo.watchEntries(openId).first;
+      return {for (final e in entries) e.playerName: e.seed};
+    }
+
+    test('classement complet : le joueur ajouté prend la dernière tête de série',
+        () async {
+      final o = await newOpen(4); // J1..J4 classés 1..4
+      await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer('J5'));
+      expect(await seedsByName(o.openId),
+          {'J1': 1, 'J2': 2, 'J3': 3, 'J4': 4, 'J5': 5});
+      // Le classement reste complet : la génération est possible telle quelle.
+      await repo.generateBracket(o.openId);
+      expect((await bracketOf(o.openId)).nodes.length, 2 * 5 - 2);
+    });
+
+    test('les ajouts successifs prennent les têtes de série suivantes', () async {
+      final o = await newOpen(3);
+      for (final name in ['J4', 'J5', 'J6']) {
+        await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer(name));
+      }
+      expect(await seedsByName(o.openId),
+          {'J1': 1, 'J2': 2, 'J3': 3, 'J4': 4, 'J5': 5, 'J6': 6});
+    });
+
+    test("aucun classement défini : le joueur ajouté n'a pas de tête de série", () async {
+      final o = await newOpen(3, seeded: false);
+      await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer('J4'));
+      expect(await seedsByName(o.openId),
+          {'J1': null, 'J2': null, 'J3': null, 'J4': null});
+    });
+
+    test("premier inscrit d'un open : pas de tête de série", () async {
+      final o = await newOpen(1, seeded: false);
+      expect(await seedsByName(o.openId), {'J1': null});
+    });
+
+    test("classement partiel : rien n'est attribué automatiquement", () async {
+      final o = await newOpen(3);
+      await db.customUpdate(
+        'UPDATE open_entries SET seed = NULL WHERE player_id = ${o.players[2]}',
+        updates: {db.openEntries},
+      );
+      await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer('J4'));
+      expect(await seedsByName(o.openId),
+          {'J1': 1, 'J2': 2, 'J3': null, 'J4': null});
+    });
+
+    test('après une désinscription, le classement reste contigu puis se prolonge',
+        () async {
+      final o = await newOpen(4);
+      await repo.unregisterPlayer(o.openId, o.players[1]); // J2 part : J3, J4 remontent
+      await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer('J5'));
+      expect(await seedsByName(o.openId), {'J1': 1, 'J3': 2, 'J4': 3, 'J5': 4});
+    });
+
+    test('atomique : une inscription refusée ne touche à aucune tête de série',
+        () async {
+      final o = await newOpen(3);
+      // Joueur déjà inscrit
+      await expectLater(repo.registerPlayer(o.openId, o.players[0]), _openError);
+      // Joueur inexistant : refusé par la base (clé étrangère) DANS la transaction
+      await expectLater(repo.registerPlayer(o.openId, 99999), throwsA(anything));
+      expect(await seedsByName(o.openId), {'J1': 1, 'J2': 2, 'J3': 3});
+    });
+
+    test("l'inscription et la tête de série arrivent ensemble : jamais d'état intermédiaire",
+        () async {
+      final o = await newOpen(3);
+      final j4 = await repo.getOrCreatePlayer('J4');
+      // Un seul émetteur de flux observe chaque état visible de la liste.
+      final states = <List<int?>>[];
+      final sub = repo.watchEntries(o.openId).listen(
+          (entries) => states.add(entries.map((e) => e.seed).toList()));
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await repo.registerPlayer(o.openId, j4);
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      await sub.cancel();
+      // Aucun état observé avec 4 inscrits dont un sans tête de série.
+      expect(states.every((s) => s.length == 3 || !s.contains(null)), isTrue,
+          reason: 'états observés : $states');
+      expect(states.last, [1, 2, 3, 4]);
+    });
+  });
+
   group('Génération du tableau', () {
     test('refuse moins de 3 joueurs', () async {
       final o = await newOpen(2);
@@ -223,9 +309,16 @@ void main() {
     test('refuse des têtes de série incomplètes', () async {
       final o = await newOpen(4, seeded: false);
       await expectLater(repo.generateBracket(o.openId), _openError);
-      // Un joueur ajouté après le seeding casse aussi la complétude.
+      // Classement PARTIEL (un joueur sans tête de série) : refusé aussi.
+      // (Avant l'attribution automatique, ce cas était produit en ajoutant un
+      // joueur après le classement ; il faut maintenant le fabriquer à la main.
+      // Le comportement d'ajout après classement a changé volontairement : voir
+      // le groupe « Attribution de la dernière tête de série ».)
       await repo.setSeeds(o.openId, o.players);
-      await repo.registerPlayer(o.openId, await repo.getOrCreatePlayer('J5'));
+      await db.customUpdate(
+        'UPDATE open_entries SET seed = NULL WHERE player_id = ${o.players[3]}',
+        updates: {db.openEntries},
+      );
       await expectLater(repo.generateBracket(o.openId), _openError);
     });
 

@@ -14,6 +14,7 @@ import '../domain/bracket/bracket_engine.dart';
 import '../domain/bracket/bracket_formats.dart';
 import '../domain/bracket/seeding.dart';
 import '../domain/open.dart';
+import '../domain/open_rules.dart';
 import '../domain/open_state_exception.dart';
 import 'database.dart';
 
@@ -94,17 +95,28 @@ class OpenStore {
   // -------------------------------------------------------------------------
   // Inscriptions et seeding
   // -------------------------------------------------------------------------
+  /// Inscrit un joueur. Si les têtes de série de l'open sont déjà COMPLÈTES
+  /// (le président a classé ou tiré au sort), le nouvel inscrit prend la dernière
+  /// tête de série, dans la même opération : le classement reste complet sans
+  /// aucun second appel. Sinon (aucun classement, classement partiel, premier
+  /// inscrit) il n'a pas de tête de série.
   Future<void> registerPlayer(int openId, int playerId) async {
     await db.transaction(() async {
       await _requireSetup(openId, 'Les inscriptions sont closes : le tableau est déjà généré.');
-      final existing = await (db.select(db.openEntries)
-            ..where((t) => t.openId.equals(openId) & t.playerId.equals(playerId)))
-          .getSingleOrNull();
-      if (existing != null) {
+      final entries = await (db.select(db.openEntries)
+            ..where((t) => t.openId.equals(openId)))
+          .get();
+      if (entries.any((e) => e.playerId == playerId)) {
         throw const OpenStateException('Ce joueur est déjà inscrit.');
       }
+      final ranked = entries.isNotEmpty &&
+          seedingStatusOf(entries.map((e) => e.seed)) == SeedingStatus.complete;
       await db.into(db.openEntries).insert(
-            OpenEntriesCompanion.insert(openId: openId, playerId: playerId),
+            OpenEntriesCompanion.insert(
+              openId: openId,
+              playerId: playerId,
+              seed: Value(ranked ? entries.length + 1 : null),
+            ),
           );
     });
   }
@@ -205,10 +217,7 @@ class OpenStore {
         throw OpenStateException(
             'Il faut au moins ${format.minPlayers} joueurs inscrits ($n actuellement).');
       }
-      final seeds = entries.map((e) => e.seed).toList();
-      if (seeds.contains(null) ||
-          seeds.toSet().length != n ||
-          !seeds.toSet().containsAll(List.generate(n, (i) => i + 1))) {
+      if (seedingStatusOf(entries.map((e) => e.seed)) != SeedingStatus.complete) {
         throw const OpenStateException(
             'Les têtes de série ne sont pas toutes définies : classez les joueurs ou faites le tirage au sort.');
       }

@@ -9,6 +9,9 @@ import 'package:drift/native.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
+import '../domain/open_state_exception.dart';
+import '../domain/player.dart';
+
 part 'database.g.dart';
 
 // ---------------------------------------------------------------------------
@@ -214,12 +217,40 @@ class AppDatabase extends _$AppDatabase {
         },
       );
 
+  /// Renvoie le joueur portant ce nom, ou le crée. Le nom est normalisé (espaces
+  /// superflus retirés) et comparé SANS tenir compte de la casse, Unicode
+  /// compris : « éric » retrouve « Éric ». Les accents restent significatifs
+  /// (« eric » ≠ « Éric »). La comparaison se fait en Dart car SQLite (NOCASE,
+  /// lower) ne plie que l'ASCII. Si la base contient d'anciens doublons de casse
+  /// (« jean » et « Jean »), le plus ancien est renvoyé. Le nom enregistré est
+  /// celui de la première création.
   Future<int> getOrCreatePlayer(String name) async {
-    final existing =
-        await (select(players)..where((t) => t.name.equals(name)))
-            .getSingleOrNull();
-    if (existing != null) return existing.id;
-    return into(players).insert(PlayersCompanion.insert(name: name));
+    final clean = normalizePlayerName(name);
+    if (clean.isEmpty) {
+      throw const OpenStateException('Le nom du joueur est obligatoire.');
+    }
+    final key = nameKey(clean);
+    return await transaction(() async {
+      final all = await (select(players)
+            ..orderBy([(t) => OrderingTerm.asc(t.id)]))
+          .get();
+      for (final player in all) {
+        if (nameKey(player.name) == key) return player.id;
+      }
+      return into(players).insert(PlayersCompanion.insert(name: clean));
+    });
+  }
+
+  /// Tous les joueurs connus, triés par nom (casse ignorée), pour l'autocomplétion.
+  Stream<List<PlayerSummary>> watchPlayers() {
+    return select(players).watch().map((rows) {
+      final list = [for (final r in rows) PlayerSummary(r.id, r.name)];
+      list.sort((a, b) {
+        final c = nameSortKey(a.name).compareTo(nameSortKey(b.name));
+        return c != 0 ? c : a.id.compareTo(b.id);
+      });
+      return list;
+    });
   }
 
   Future<int> saveFinishedMatch(FinishedMatchData data) {

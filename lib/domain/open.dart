@@ -11,6 +11,27 @@ abstract final class OpenFormat {
   static const all = [singleElim, doubleElim, groupsKnockout];
 }
 
+/// Libellé français d'un format d'open (voir OpenFormat).
+String formatLabel(String format) {
+  switch (format) {
+    case OpenFormat.singleElim:
+      return 'Élimination simple';
+    case OpenFormat.doubleElim:
+      return 'Double élimination';
+    case OpenFormat.groupsKnockout:
+      return 'Poules + phase finale';
+    default:
+      return format;
+  }
+}
+
+/// Vrai si le tableau de ce format peut être généré aujourd'hui.
+/// (Seule la double élimination est implémentée : voir BracketFormats.)
+bool isFormatAvailable(String format) => format == OpenFormat.doubleElim;
+
+/// « 1 inscrit », « 12 inscrits ».
+String entryCountLabel(int count) => count <= 1 ? '$count inscrit' : '$count inscrits';
+
 /// Cycle de vie d'un open. Valeurs stockées dans `opens.status`.
 abstract final class OpenStatus {
   /// Inscriptions et seeding en cours, pas encore de tableau.

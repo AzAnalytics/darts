@@ -11,12 +11,19 @@ import 'dart:math';
 
 import '../domain/bracket/bracket.dart';
 import '../domain/open.dart';
+import '../domain/player.dart';
 import 'database.dart';
 import 'open_store.dart';
 
 abstract class DartsRepository {
   // --- Joueurs, matchs libres, statistiques ---
+
+  /// Renvoie le joueur de ce nom (normalisé, casse ignorée, accents significatifs)
+  /// ou le crée : « éric » retrouve « Éric ».
   Future<int> getOrCreatePlayer(String name);
+
+  /// Tous les joueurs connus, triés par nom : alimente l'autocomplétion.
+  Stream<List<PlayerSummary>> watchPlayers();
   Future<int> saveFinishedMatch(FinishedMatchData data);
   Stream<List<MatchSummary>> watchHistory();
   Stream<List<Standing>> watch180();
@@ -35,6 +42,9 @@ abstract class DartsRepository {
   Stream<OpenSummary?> watchOpen(int openId);
 
   // --- Inscriptions et seeding (status `setup` uniquement) ---
+
+  /// Inscrit un joueur. Si les têtes de série sont déjà complètes, il prend
+  /// automatiquement la dernière (même transaction) ; sinon il n'en a pas.
   Future<void> registerPlayer(int openId, int playerId);
   Future<void> unregisterPlayer(int openId, int playerId);
 
@@ -81,6 +91,9 @@ class DriftDartsRepository implements DartsRepository {
 
   @override
   Future<int> getOrCreatePlayer(String name) => db.getOrCreatePlayer(name);
+
+  @override
+  Stream<List<PlayerSummary>> watchPlayers() => db.watchPlayers();
 
   @override
   Future<int> saveFinishedMatch(FinishedMatchData data) =>

@@ -7,6 +7,10 @@ import 'package:intl/intl.dart';
 import '../domain/open.dart';
 import '../domain/open_state_exception.dart';
 
+// Ces libellés vivent dans le domaine (les règles d'un open en ont besoin) ;
+// réexportés ici pour que les écrans n'aient qu'un import.
+export '../domain/open.dart' show entryCountLabel, formatLabel, isFormatAvailable;
+
 /// Libellé français du statut d'un open (voir OpenStatus).
 String statusLabel(String status) {
   switch (status) {
@@ -20,27 +24,6 @@ String statusLabel(String status) {
       return status;
   }
 }
-
-/// Libellé français d'un format d'open (voir OpenFormat).
-String formatLabel(String format) {
-  switch (format) {
-    case OpenFormat.singleElim:
-      return 'Élimination simple';
-    case OpenFormat.doubleElim:
-      return 'Double élimination';
-    case OpenFormat.groupsKnockout:
-      return 'Poules + phase finale';
-    default:
-      return format;
-  }
-}
-
-/// Vrai si le tableau de ce format peut être généré aujourd'hui.
-/// (Seule la double élimination est implémentée : voir BracketFormats.)
-bool isFormatAvailable(String format) => format == OpenFormat.doubleElim;
-
-/// « 1 inscrit », « 12 inscrits ».
-String entryCountLabel(int count) => count <= 1 ? '$count inscrit' : '$count inscrits';
 
 /// Date courte en français : « sam. 3 oct. 2026 ».
 /// Nécessite les données de date françaises (initializeDateFormatting('fr'),

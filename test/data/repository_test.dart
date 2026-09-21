@@ -326,6 +326,24 @@ void main() {
       expect(b.nodeAt('W2-1').markerId, isNull);
     });
 
+    test('marqueur retiré automatiquement : le match se joue quand même, sans marqueur', () async {
+      final o = await newOpen(4);
+      await repo.generateBracket(o.openId);
+      await repo.assignMarker((await bracketOf(o.openId)).nodeAt('W2-1').id!, o.players[1]);
+      await playNode((await bracketOf(o.openId)).nodeAt('W1-1'), o.players[0]);
+      await playNode((await bracketOf(o.openId)).nodeAt('W1-2'), o.players[1]);
+
+      final finale = (await bracketOf(o.openId)).nodeAt('W2-1');
+      expect(finale.markerId, isNull);
+      expect(finale.status, NodeStatus.ready);
+
+      // Jouable et enregistrable sans marqueur ; le tableau avance normalement.
+      final matchId = await playNode(finale, o.players[0]);
+      final match = await (db.select(db.matches)..where((t) => t.id.equals(matchId))).getSingle();
+      expect(match.markerId, isNull);
+      expect((await bracketOf(o.openId)).nodeAt('GF1').playerA, o.players[0]);
+    });
+
     test('marqueur non modifiable sur un match terminé', () async {
       final o = await newOpen(5);
       await repo.generateBracket(o.openId);
@@ -502,6 +520,55 @@ void main() {
       expect({for (final e in entries) e.playerId: e.finalPlacement},
           {p[0]: 1, p[1]: 2, p[2]: 3, p[3]: 4});
       expect(await db.select(db.matches).get(), hasLength(7)); // 2N − 1
+    });
+  });
+
+  group('Places finales persistées', () {
+    // Base de l'Order of Merit : open_entries.final_placement.
+    test('8 joueurs : 1er, 2e, 3e, 4e puis ex æquo par tour d\'élimination (5-5, 7-7)', () async {
+      final o = await newOpen(8);
+      await repo.generateBracket(o.openId);
+
+      // Aucune place avant la fin.
+      expect((await repo.watchEntries(o.openId).first).every((e) => e.finalPlacement == null), isTrue);
+
+      // Le mieux classé (tête de série la plus basse) gagne toujours.
+      while ((await repo.watchOpen(o.openId).first)!.status != OpenStatus.finished) {
+        final node = (await bracketOf(o.openId)).readyNodes.first;
+        final winner = o.players.indexOf(node.playerA!) < o.players.indexOf(node.playerB!)
+            ? node.playerA!
+            : node.playerB!;
+        await playNode(node, winner);
+      }
+
+      final entries = await repo.watchEntries(o.openId).first;
+      final byPlayer = {for (final e in entries) e.playerId: e.finalPlacement};
+      expect(
+        [for (final p in o.players) byPlayer[p]],
+        [1, 2, 3, 4, 5, 5, 7, 7],
+      );
+    });
+
+    test('toute la table est exploitable : pas de trou, ex æquo à la meilleure place', () async {
+      // 6 joueurs (avec byes) : la place d'un joueur = 1 + nombre de joueurs
+      // strictement mieux classés, donc les ex æquo se suivent d'un « saut ».
+      final o = await newOpen(6);
+      await repo.generateBracket(o.openId);
+      final random = Random(3);
+      while ((await repo.watchOpen(o.openId).first)!.status != OpenStatus.finished) {
+        final ready = (await bracketOf(o.openId)).readyNodes.toList();
+        final node = ready[random.nextInt(ready.length)];
+        await playNode(node, random.nextBool() ? node.playerA! : node.playerB!);
+      }
+      final places = [
+        for (final e in await repo.watchEntries(o.openId).first) e.finalPlacement!,
+      ];
+      expect(places.length, 6);
+      expect(places.where((p) => p == 1), hasLength(1));
+      expect(places.where((p) => p == 2), hasLength(1));
+      for (final p in places) {
+        expect(places.where((q) => q < p).length, p - 1, reason: 'place $p');
+      }
     });
   });
 

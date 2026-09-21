@@ -98,6 +98,21 @@ void main() {
       expect(b.nodeAt('W2-1').markerId, isNull);
     });
 
+    test('marqueur retiré : le match reste prêt et jouable, sans marqueur', () {
+      // Un match n'est JAMAIS bloqué faute de marqueur : le statut ne dépend
+      // que de la présence des deux joueurs.
+      var b = generateDouble(4);
+      b = b.replacing([b.nodeAt('W2-1').withMarker(2)]);
+      b = play(b, 'W1-1', 1);
+      b = play(b, 'W1-2', 2); // 2 rejoint W2-1 : son assignation est retirée
+      final finale = b.nodeAt('W2-1');
+      expect(finale.markerId, isNull);
+      expect(finale.status, NodeStatus.ready);
+      b = play(b, 'W2-1', 1); // jouable sans marqueur
+      expect(b.nodeAt('W2-1').status, NodeStatus.finished);
+      expect(b.nodeAt(BracketKeys.grandFinal).playerA, 1);
+    });
+
     test('un marqueur étranger au match est conservé', () {
       var b = generateDouble(4);
       b = b.replacing([b.nodeAt('W2-1').withMarker(3)]);

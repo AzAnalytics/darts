@@ -4,11 +4,16 @@
 // avec historique et classements en direct.
 
 import 'package:flutter/material.dart';
+import 'package:intl/date_symbol_data_local.dart';
 import 'data/database.dart';
 import 'data/repository.dart';
+import 'domain/open.dart';
+import 'ui/app_localization.dart';
+import 'ui/opens/open_list_screen.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeDateFormatting('fr');
   final db = AppDatabase();
   final repo = DriftDartsRepository(db);
   runApp(DartsApp(repo: repo));
@@ -23,6 +28,9 @@ class DartsApp extends StatelessWidget {
     return MaterialApp(
       title: 'Darts 501',
       debugShowCheckedModeBanner: false,
+      locale: appLocale,
+      localizationsDelegates: appLocalizationsDelegates,
+      supportedLocales: appSupportedLocales,
       theme: ThemeData(
         useMaterial3: true,
         colorScheme: ColorScheme.fromSeed(
@@ -60,6 +68,17 @@ class HomeScreen extends StatelessWidget {
               onPressed: () => Navigator.push(
                 context,
                 MaterialPageRoute(builder: (_) => SetupScreen(repo: repo)),
+              ),
+            ),
+            const SizedBox(height: 16),
+            FilledButton.tonalIcon(
+              icon: const Icon(Icons.emoji_events),
+              label: const Text('Opens'),
+              style: FilledButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 20)),
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => OpenListScreen(repo: repo)),
               ),
             ),
             const SizedBox(height: 16),
@@ -147,7 +166,7 @@ class _SetupScreenState extends State<SetupScreen> {
                 const SizedBox(width: 12),
                 DropdownButton<int>(
                   value: _bestOf,
-                  items: const [3, 5, 7, 9, 11]
+                  items: bestOfOptions
                       .map((n) =>
                           DropdownMenuItem(value: n, child: Text('$n legs')))
                       .toList(),

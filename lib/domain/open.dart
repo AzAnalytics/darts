@@ -23,6 +23,11 @@ abstract final class OpenStatus {
   static const finished = 'finished';
 }
 
+/// Nombres de legs proposés à l'utilisateur (best-of). Liste UNIQUE partagée par
+/// le match libre (SetupScreen) et le formulaire d'open, pour qu'il ne voie
+/// jamais deux listes différentes. Le repository accepte tout nombre impair.
+const bestOfOptions = [3, 5, 7, 9, 11];
+
 /// Données saisies par le président pour créer / modifier un open.
 class NewOpen {
   final String name;
@@ -30,7 +35,11 @@ class NewOpen {
   final DateTime? date;
   final String format;
 
-  /// Nombre de legs du match (impair : 1, 3, 5…).
+  /// Best-of PAR DÉFAUT des matchs de l'open (impair : 3, 5, 7…). Ce n'est pas
+  /// une contrainte figée : chaque match enregistre son propre best-of
+  /// (`matches.bestOf`) ; celui de l'open est la valeur proposée au lancement
+  /// d'un match. Cela laisse la porte ouverte à un best-of variable par tour
+  /// (finale plus longue) sans toucher au schéma.
   final int bestOf;
 
   /// Double élimination : si le vainqueur du tableau perdant gagne la grande
@@ -53,6 +62,8 @@ class OpenSummary {
   final String? location;
   final DateTime? date;
   final String format;
+
+  /// Best-of par défaut des matchs (voir NewOpen.bestOf).
   final int bestOf;
   final bool grandFinalReset;
   final String status;

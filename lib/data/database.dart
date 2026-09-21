@@ -25,6 +25,8 @@ class Opens extends Table {
   TextColumn get name => text()();
   TextColumn get location => text().nullable()();
   DateTimeColumn get date => dateTime().nullable()();
+  // Best-of PAR DÉFAUT des matchs de l'open : chaque match garde le sien
+  // (matches.bestOf), donc un best-of variable par tour reste possible.
   IntColumn get bestOf => integer().withDefault(const Constant(5))();
   // Valeurs : voir OpenFormat. Le défaut SQL ('single_elim') est hérité de la
   // v1 (SQLite ne permet pas de le changer sans reconstruire la table) : le
